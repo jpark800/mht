@@ -1,4 +1,4 @@
-package rest
+package triggerhttpnew
 
 import (
 	"crypto/md5"
