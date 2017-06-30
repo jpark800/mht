@@ -154,6 +154,8 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 			"content":     content,
 		}
 
+		log.Debugf("\n\n Request info: %v \n\n", data)
+
 		//todo handle error
 		startAttrs, _ := rt.metadata.OutputsToAttrs(data, false)
 
