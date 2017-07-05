@@ -154,16 +154,15 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 			"content":     content,
 		}
 
-		log.Debugf("Request: %v \n\n", data)
-		log.Debugf("Handler - %v configuration: %v \n\n", handlerCfg.ActionId, handlerCfg.Settings)
+		log.Debugf("Request: %v", data)
+		log.Debugf("Handler - %v configuration: %v", handlerCfg.ActionId, handlerCfg.Settings)
 
 		contentFilterString := handlerCfg.Settings["if"].(string)
 		contentBytes, err := json.Marshal(content)
-		log.Debugf("content type: %T \n\n", content)
 		contentString := string(contentBytes)
-		log.Debug("appling content filter\n\n")
+		log.Debugf("appling content filter for - %v", contentFilterString)
 		if !strings.Contains(contentString, contentFilterString) {
-			log.Debug("handler condition not satisfied")
+			log.Debug("handler not found - content filter condition not satisfied")
 			http.Error(w, "Handler not found", http.StatusNotImplemented)
 			return
 		}
