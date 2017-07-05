@@ -12,6 +12,7 @@ import (
 	"github.com/TIBCOSoftware/flogo-lib/core/action"
 	"github.com/TIBCOSoftware/flogo-lib/core/trigger"
 	"github.com/TIBCOSoftware/flogo-lib/logger"
+	"github.com/TIBCOSoftware/mashling-lib/expression"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -161,7 +162,8 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 		contentBytes, err := json.Marshal(content)
 		contentString := string(contentBytes)
 		log.Debugf("appling content filter for - %v", contentFilterString)
-		if !strings.Contains(contentString, contentFilterString) {
+		if !expression.EvalMashlingExpr(contentFilterString, contentString) {
+			// if !strings.Contains(contentString, contentFilterString) {
 			log.Debug("handler not found - content filter condition not satisfied")
 			http.Error(w, "Handler not found", http.StatusNotImplemented)
 			return
