@@ -1,9 +1,8 @@
 package expression
 
 import (
-	"strings"
-
 	"github.com/TIBCOSoftware/flogo-lib/logger"
+	"github.com/elgs/gojq"
 )
 
 //package logger
@@ -17,9 +16,18 @@ func EvalMashlingExpr(expr string, content string) bool {
 	log.Debugf("expression - %v ", expr)
 	log.Debugf("content: %v", content)
 
-	if !strings.Contains(content, expr) {
-		result = true
+	parser, err := gojq.NewStringQuery(content)
+	if err != nil {
+		log.Errorf("error while parsing content - %v", err)
+		return false
 	}
+
+	id, err := parser.Query("id")
+	log.Debugf("parser.Query('id'): %v", id)
+
+	// if strings.Contains(content, expr) {
+	// 	result = true
+	// }
 
 	return result
 }
