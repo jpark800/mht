@@ -158,12 +158,15 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 		log.Debugf("Request: %v", data)
 		log.Debugf("Handler - %v configuration: %v", handlerCfg.ActionId, handlerCfg.Settings)
 
-		contentFilterString := handlerCfg.Settings["if"].(string)
+		expressionStr := handlerCfg.Settings["if"].(string)
 		contentBytes, err := json.Marshal(content)
-		contentString := string(contentBytes)
-		log.Debugf("appling content filter for - %v", contentFilterString)
-		if !expression.EvalMashlingExpr(contentFilterString, contentString) {
-			// if !strings.Contains(contentString, contentFilterString) {
+		contentStr := string(contentBytes)
+		//evaluate expression
+		exprResult, err := expression.EvalMashlingExpr(expressionStr, contentStr)
+		if err != nil {
+			log.Errorf("not able evaluate expression - %v", err)
+		}
+		if !exprResult {
 			log.Debug("handler not found - content filter condition not satisfied")
 			http.Error(w, "Handler not found", http.StatusNotImplemented)
 			return
