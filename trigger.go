@@ -18,10 +18,24 @@ import (
 
 const (
 	REST_CORS_PREFIX = "REST_TRIGGER"
+	DISPATCH_KEY_IF  = "if"
 )
 
 // log is the default package logger
 var log = logger.GetLogger("trigger-tibco-rest")
+
+//OptimizedHandler optimized handler
+type OptimizedHandler struct {
+	defaultActionId string
+	settings        map[string]interface{}
+	dispatches      []*Dispatch
+}
+
+//Dispatch holds dispatch actionId and condition
+type Dispatch struct {
+	actionId  string
+	condition string
+}
 
 var validMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 
@@ -53,6 +67,7 @@ func (t *RestTrigger) Metadata() *trigger.Metadata {
 	return t.metadata
 }
 
+//Init trigger initialization
 func (t *RestTrigger) Init(runner action.Runner) {
 
 	log.SetLogLevel(logger.DebugLevel)
@@ -70,20 +85,73 @@ func (t *RestTrigger) Init(runner action.Runner) {
 	addr := ":" + t.config.GetSetting("port")
 	t.runner = runner
 
+	//optimize flog-handlers i.e merge handlers having same settings
+	optHandlers := []*OptimizedHandler{}
+	for _, handler := range t.config.Handlers {
+		//check if there is any handler already added with same settings
+		handlerAdded := false
+		for _, optHandler := range optHandlers {
+			//loop through all settings
+			settingsMatched := true
+			for k, v := range optHandler.settings {
+				if v != handler.Settings[k] {
+					settingsMatched = false
+					break
+				}
+			}
+			if settingsMatched {
+				//check for dispatch condition
+				if dispatchCondition := handler.Settings[DISPATCH_KEY_IF]; dispatchCondition != nil {
+					tmpDispatch := &Dispatch{
+						actionId:  handler.ActionId,
+						condition: dispatchCondition.(string),
+					}
+					optHandler.dispatches = append(optHandler.dispatches, tmpDispatch)
+				} else {
+					//no dispatch condition, hence make it as default action
+					optHandler.defaultActionId = handler.ActionId
+				}
+				handlerAdded = true
+				break
+			}
+		}
+
+		if !handlerAdded {
+			tmpSettings := make(map[string]interface{})
+			for k, v := range handler.Settings {
+				if k != DISPATCH_KEY_IF {
+					tmpSettings[k] = v
+				}
+			}
+
+			var tmpDispatches []*Dispatch
+			//check for dispatch condition
+			if dispatchCondition := handler.Settings[DISPATCH_KEY_IF]; dispatchCondition != nil {
+				tmpDispatch := &Dispatch{
+					actionId:  handler.ActionId,
+					condition: handler.Settings[DISPATCH_KEY_IF].(string),
+				}
+				tmpDispatches = append(tmpDispatches, tmpDispatch)
+			}
+
+			optHandler := OptimizedHandler{
+				defaultActionId: handler.ActionId,
+				settings:        tmpSettings,
+				dispatches:      tmpDispatches,
+			}
+
+			optHandlers = append(optHandlers, &optHandler)
+		}
+	}
+
 	// Init handlers
-	for _, handlerCfg := range t.config.Handlers {
-
-		if handlerIsValid(handlerCfg) {
-			method := strings.ToUpper(handlerCfg.GetSetting("method"))
-			path := handlerCfg.GetSetting("path")
-
-			log.Debugf("REST Trigger: Registering handler [%s: %s] for Action Id: [%s]", method, path, handlerCfg.ActionId)
-
-			router.OPTIONS(path, handleCorsPreflight) // for CORS
-			router.Handle(method, path, newActionHandler(t, handlerCfg.ActionId, handlerCfg))
-
-		} else {
-			panic(fmt.Sprintf("Invalid handler: %v", handlerCfg))
+	for _, optHandler := range optHandlers {
+		if handlerIsValid(optHandler) {
+			method := strings.ToUpper(optHandler.settings["method"].(string))
+			path := optHandler.settings["path"].(string)
+			log.Debugf("REST Trigger: Registering handler [%s: %s] with default Action Id: [%s]", method, path, optHandler.defaultActionId)
+			router.OPTIONS(path, handleCorsPreflight)
+			router.Handle(method, path, newActionHandler(t, optHandler))
 		}
 	}
 
@@ -114,7 +182,7 @@ type IDResponse struct {
 	ID string `json:"id"`
 }
 
-func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.HandlerConfig) httprouter.Handle {
+func newActionHandler(rt *RestTrigger, handler *OptimizedHandler) httprouter.Handle {
 
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 
@@ -156,20 +224,30 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 		}
 
 		log.Debugf("Request: %v", data)
-		log.Debugf("Handler - %v configuration: %v", handlerCfg.ActionId, handlerCfg.Settings)
+		log.Debugf("Handler - default actionID - %v configuration: %v", handler.defaultActionId, handler.settings)
 
-		expressionStr := handlerCfg.Settings["if"].(string)
+		//pick action based on dispatch condition
 		contentBytes, err := json.Marshal(content)
 		contentStr := string(contentBytes)
-		//evaluate expression
-		exprResult, err := expression.EvalMashlingExpr(expressionStr, contentStr)
-		if err != nil {
-			log.Errorf("not able evaluate expression - %v", err)
+		actionId := ""
+
+		for _, dispatch := range handler.dispatches {
+			expressionStr := dispatch.condition
+			//evaluate expression
+			exprResult, err := expression.EvalMashlingExpr(expressionStr, contentStr)
+			if err != nil {
+				log.Errorf("not able evaluate expression - %v", err)
+			}
+			if exprResult {
+				actionId = dispatch.actionId
+				log.Debugf("dispatch resolved for the actionId - %v", actionId)
+				break
+			}
 		}
-		if !exprResult {
-			log.Debug("handler not found - content filter condition not satisfied")
-			http.Error(w, "Handler not found", http.StatusNotImplemented)
-			return
+		//If no dispatch is found, use default action
+		if actionId == "" {
+			actionId = handler.defaultActionId
+			log.Debugf("dispatch not resolved. Continue with default action - %v", actionId)
 		}
 
 		//todo handle error
@@ -205,17 +283,16 @@ func newActionHandler(rt *RestTrigger, actionId string, handlerCfg *trigger.Hand
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Utils
-
-func handlerIsValid(handler *trigger.HandlerConfig) bool {
-	if handler.Settings == nil {
+func handlerIsValid(handler *OptimizedHandler) bool {
+	if handler.settings == nil {
 		return false
 	}
 
-	if handler.Settings["method"] == "" {
+	if handler.settings["method"] == "" {
 		return false
 	}
 
-	if !stringInList(strings.ToUpper(handler.GetSetting("method")), validMethods) {
+	if !stringInList(strings.ToUpper(handler.settings["method"].(string)), validMethods) {
 		return false
 	}
 
