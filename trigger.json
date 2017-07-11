@@ -53,7 +53,7 @@
         "type": "boolean"
       },
       {
-        "name": "if",
+        "name": "Condition",
         "type": "string"
       }
     ]
