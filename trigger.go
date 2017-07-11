@@ -12,13 +12,13 @@ import (
 	"github.com/TIBCOSoftware/flogo-lib/core/action"
 	"github.com/TIBCOSoftware/flogo-lib/core/trigger"
 	"github.com/TIBCOSoftware/flogo-lib/logger"
+	condition "github.com/TIBCOSoftware/mashling-lib/conditions"
+	"github.com/TIBCOSoftware/mashling-lib/util"
 	"github.com/julienschmidt/httprouter"
-	"github.com/rameshpolishetti/triggerhttpnew/expression"
 )
 
 const (
 	REST_CORS_PREFIX = "REST_TRIGGER"
-	DISPATCH_KEY_IF  = "if"
 )
 
 // log is the default package logger
@@ -101,7 +101,7 @@ func (t *RestTrigger) Init(runner action.Runner) {
 			}
 			if settingsMatched {
 				//check for dispatch condition
-				if dispatchCondition := handler.Settings[DISPATCH_KEY_IF]; dispatchCondition != nil {
+				if dispatchCondition := handler.Settings[util.Flogo_Trigger_Handler_Setting_Condition]; dispatchCondition != nil {
 					tmpDispatch := &Dispatch{
 						actionId:  handler.ActionId,
 						condition: dispatchCondition.(string),
@@ -119,17 +119,17 @@ func (t *RestTrigger) Init(runner action.Runner) {
 		if !handlerAdded {
 			tmpSettings := make(map[string]interface{})
 			for k, v := range handler.Settings {
-				if k != DISPATCH_KEY_IF {
+				if k != util.Flogo_Trigger_Handler_Setting_Condition {
 					tmpSettings[k] = v
 				}
 			}
 
 			var tmpDispatches []*Dispatch
 			//check for dispatch condition
-			if dispatchCondition := handler.Settings[DISPATCH_KEY_IF]; dispatchCondition != nil {
+			if dispatchCondition := handler.Settings[util.Flogo_Trigger_Handler_Setting_Condition]; dispatchCondition != nil {
 				tmpDispatch := &Dispatch{
 					actionId:  handler.ActionId,
-					condition: handler.Settings[DISPATCH_KEY_IF].(string),
+					condition: handler.Settings[util.Flogo_Trigger_Handler_Setting_Condition].(string),
 				}
 				tmpDispatches = append(tmpDispatches, tmpDispatch)
 			}
@@ -223,9 +223,6 @@ func newActionHandler(rt *RestTrigger, handler *OptimizedHandler) httprouter.Han
 			"content":     content,
 		}
 
-		log.Debugf("Request: %v", data)
-		log.Debugf("Handler - default actionID - %v configuration: %v", handler.defaultActionId, handler.settings)
-
 		//pick action based on dispatch condition
 		contentBytes, err := json.Marshal(content)
 		contentStr := string(contentBytes)
@@ -233,14 +230,19 @@ func newActionHandler(rt *RestTrigger, handler *OptimizedHandler) httprouter.Han
 
 		for _, dispatch := range handler.dispatches {
 			expressionStr := dispatch.condition
-			//evaluate expression
-			exprResult, err := expression.EvalMashlingExpr(expressionStr, contentStr)
+			conditionOperation, err := condition.GetConditionOperation(expressionStr)
 			if err != nil {
-				log.Errorf("not able evaluate expression - %v", err)
+				log.Errorf("not able parse the condition '%v' mentioned for content based handler. skipping the handler.", expressionStr)
+				continue
+			}
+			//evaluate expression
+			exprResult, err := condition.EvaluateCondition(*conditionOperation, contentStr)
+			if err != nil {
+				log.Errorf("not able evaluate expression - %v with error - %v. skipping the handler.", expressionStr, err)
 			}
 			if exprResult {
 				actionId = dispatch.actionId
-				log.Debugf("dispatch resolved for the actionId - %v", actionId)
+				log.Debugf("dispatch resolved with the actionId - %v", actionId)
 				break
 			}
 		}
