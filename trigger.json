@@ -1,7 +1,7 @@
 {
   "name": "tibco-gateway-rest",
   "type": "flogo:trigger",
-  "ref": "github.com/rameshpolishetti/triggerhttpnew",
+  "ref": "github.com/jpark800/mht",
   "version": "0.0.1",
   "title": "Receive HTTP Message",
   "description": "Simple REST Trigger",

@@ -17,7 +17,7 @@ type MashlingExpr struct {
 }
 
 //package logger
-var log = logger.GetLogger("triggerhttpnew-expression")
+var log = logger.GetLogger("mht-expression")
 
 //EvalMashlingExpr evaluates mashling expression
 func EvalMashlingExpr(exprStr string, content string) (bool, error) {
